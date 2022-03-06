@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">GPS Video Logger</string>
+    <string name="location_data">location data</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="switch_camera">Switch Camera</string>
+    <string name="record_stop">Stop</string>
+    <string name="record">Record</string>
+    <string name="title_activity_file_picker">FilePicker</string>
+    <string name="recordings">My Journeys</string>
+
+    <string name="title_activity_fullscreen">FullscreenActivity</string>
+    <string name="dummy_button">Dummy Button</string>
+    <string name="dummy_content">DUMMY\nCONTENT</string>
+    <string name="ver_code">v2.0.1</string>
+    <string name="tick">tick</string>
+</resources>
