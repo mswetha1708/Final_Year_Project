@@ -14,6 +14,7 @@ import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.hardware.Camera;
@@ -46,20 +47,17 @@ import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.gms.vision.Frame;
-import com.google.android.gms.vision.text.Text;
 import com.google.android.gms.vision.text.TextBlock;
 import com.google.android.gms.vision.text.TextRecognizer;
+import com.opencsv.CSVReader;
+import com.opencsv.CSVReaderBuilder;
 import com.opencsv.CSVWriter;
 
-import org.bytedeco.opencv.presets.opencv_core;
 import org.jcodec.api.FrameGrab;
 import org.jcodec.api.JCodecException;
-import org.jcodec.api.android.AndroidSequenceEncoder;
 import org.jcodec.common.AndroidUtil;
-import org.jcodec.common.io.FileChannelWrapper;
 import org.jcodec.common.io.NIOUtils;
 import org.jcodec.common.model.Picture;
-import org.jcodec.common.model.Rational;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
 
@@ -67,10 +65,12 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -93,6 +93,8 @@ public class Recording extends AppCompatActivity {
     private int VIDEO_FPS = 25;
     private int VIDEO_QUALITY;
     private HashMap<String, Integer> availableVideoQualities;
+    private float crop_height;
+    private float crop_width;
 
 
     //Timelapse values - Populated based on Camcorder advertised hardware capabilites
@@ -118,6 +120,9 @@ public class Recording extends AppCompatActivity {
     private static final int EXPERIMENTAL_TIME_LAPSE_MODE = 4;
 
     private String filename;
+
+    //Accuracy parameter - hash map of hash map - number of occurance, number of mismatch and misinterpretations.
+    private HashMap<Integer, List<Integer>> accuracy = new HashMap<Integer,List<Integer>>();
 
     // Camera parameter
     Camera mCamera;
@@ -532,7 +537,7 @@ public class Recording extends AppCompatActivity {
         }
     }
 
-    private Bitmap apply_location(Bitmap photo, int frameNumber, org.joda.time.DateTime startTime)
+    private Bitmap apply_location(Bitmap photo, int frameNumber, org.joda.time.DateTime startTime, CSVWriter writer)
     {
         Canvas canvas = new Canvas(photo);
         canvas.drawBitmap(photo, 0, 0, null);
@@ -553,9 +558,9 @@ public class Recording extends AppCompatActivity {
         Log.d("Info:", String.valueOf(currentGpxPoint.getTime().getMillis()));
         Log.d("Info:", String.valueOf(startTime.getMillis()));
         long delay = currentGpxPoint.getTime().getMillis() - startTime.getMillis();
-        long diff = (delay * 25) - frameNumber;
+        long diff = (delay * 30) - frameNumber;
 
-        if(delay * 25/1000 > frameNumber || frameNumber == 0 || gpxTrackPointsIterator.hasNext()==false) {
+        if(delay * 30/1000 > frameNumber || frameNumber == 0 || gpxTrackPointsIterator.hasNext()==false) {
             Log.d("Info", "To be filled");
             Log.d("Info", "To be filled");
         }
@@ -571,6 +576,10 @@ public class Recording extends AppCompatActivity {
         Log.d("Latitude", String.valueOf(currentGpxPoint.getElevation()));
         Log.d("Latitude", String.valueOf(currentGpxPoint.getLatitude()));
         Log.d("Longitude", String.valueOf(currentGpxPoint.getLongitude()));
+        //Write to CSV File
+        String[] data1 = {String.valueOf(frameNumber), String.valueOf(currentGpxPoint.getLatitude()),String.valueOf(currentGpxPoint.getLongitude())};
+        writer.writeNext(data1);
+
         canvas.drawRect(5 - margin, 30 + fm.top - margin,
                 5 + p.measureText(latitude+", "+ longitude) + margin, 15 + fm.bottom
                         + margin, p);
@@ -606,21 +615,64 @@ public class Recording extends AppCompatActivity {
         return "";
     }
 
-    private void convert_to_csv(int i, CSVWriter writer, String extracted_text) {
+    private void convert_to_csv(int i, CSVWriter writer, String extracted_text,  List<String[]> allData) {
 
             // Split extract Text when a coma is found
             String [] data = extracted_text.split(",");
-            String[] data1 = {String.valueOf(i), data[0],data[1]};
+            //Original Value, New Value
+            if(allData.size()>i) {
+                String[] Original = allData.get(i);
+                //Data1 find number of digits misclassified for each row.
+                //Find the digit misclassified and add the total number of digits misclassified along with accuracy (0-9).
+                if(Original.length <3 || data.length <2) {
+                    return;
+                }
+                    Log.i("INFO", String.valueOf(i));
+                    int latitude_error = mis_match(Original[1], data[0]);
+                    int longitude_error = mis_match(Original[2], data[1]);
 
-            writer.writeNext(data1);
+                //
+                String[] data1 = {String.valueOf(i), Original[0], Original[1], Original[2], data[0], data[1],String.valueOf(latitude_error), String.valueOf(longitude_error)};
+                writer.writeNext(data1);
+            }
 
+    }
+    private int mis_match(String original, String extracted)
+    {
+        int count =0;
+        //Assume no missing characters
+        //Remove space
+        extracted = extracted.replace(" ", "");
+        original = original.replace(" ", "");
+        for(int i=0;i<original.length() && i<extracted.length();i++)
+        {
+            //Check if Integer
+            char c = original.charAt(i);
+            String s = String.valueOf(original.charAt(i));
+            if(!Character.isDigit(c))
+                continue;
+            Integer r = Integer.parseInt(s);
+                //If . do not consider
+            Integer integer = Integer.parseInt(String.valueOf(original.charAt(i)));
+            List<Integer> list = accuracy.get(integer);
+            list.set(0, list.get(0) + Integer.valueOf(1));
+            // Find total mismatch
+            accuracy.put(integer,list);
+
+         if(original.charAt(i) != extracted.charAt(i)) {
+             count++;
+             list.set(1,list.get(1) + Integer.valueOf(1));
+             accuracy.put(integer, list);
+         }
+        }
+        return count;
     }
     private CSVWriter create_csv_file() throws IOException {
         File csvfile = null;
         // Use OCR and add the details , frame number, coordinates in a csv.
         try {
             csvfile = new File(getExternalFilesDir(null) +
-                    File.separator + "GPS_Video_Logger" + File.separator + filename +"final_result.csv");
+                    File.separator + "GPS_Video_Logger" + File.separator + "REC-2022-04-17-08-29-20" +"after_Processing.csv");
             // if file doesnt exists, then create it
             if (!csvfile.exists()) {
                 csvfile.createNewFile();
@@ -639,10 +691,24 @@ public class Recording extends AppCompatActivity {
         CSVWriter writer = new CSVWriter(outputfile);
 
         // adding header to csv
-        String[] header = {"Frame_Number", "Latitude", "Longitude"};
+        String[] header = {"New Frame Number","Frame_Number","Original Latitude","Original Longitude", "Latitude", "Longitude","LatitudeError","Longitude Error"};
         // closing writer connection
         writer.writeNext(header);
         return writer;
+    }
+    private static int fixOrientation(Bitmap bitmap) {
+        if (bitmap.getWidth() > bitmap.getHeight()) {
+            return 270;
+        }
+        return 0;
+    }
+    public static Bitmap flipIMage(Bitmap bitmap) {
+        //Moustafa: fix issue of image reflection due to front camera settings
+        Matrix matrix = new Matrix();
+        int rotation = fixOrientation(bitmap);
+        matrix.postRotate(rotation);
+        matrix.preScale(-1, 1);
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
     }
     private void extract_images_store() throws  IOException {
         //enter correct location
@@ -651,7 +717,7 @@ public class Recording extends AppCompatActivity {
 
         //To get frames from video
         String path = getExternalFilesDir(null) +
-                File.separator + "GPS_Video_Logger" + File.separator +"REC-2022-03-06-08-49-29.mp4";
+                File.separator + "GPS_Video_Logger" + File.separator + "REC-2022-04-17-08-29-20" +".mp4";
         Log.i("Path:", path);
         File folder = new File(path);
         if (!folder.exists()) {
@@ -667,16 +733,16 @@ public class Recording extends AppCompatActivity {
         }
         Picture picture;
         int i=0;
-
-
+//
+//
         //Open GPX file and get parser
         GPXParser parser = new GPXParser();
         Gpx gpx_parsed = null;
         FileInputStream fis;
-        String gpx_filename = "REC-2022-03-06-08-49-29.gpx";
+        String gpx_filename = "REC-2022-04-17-17-49-05" + ".gpx";
 
-
-//Read from .gpx file created
+//
+////Read from .gpx file created
 
 
         Log.d("Fileo",getExternalFilesDir(null) +
@@ -710,48 +776,53 @@ public class Recording extends AppCompatActivity {
                 }
             }
         }
-
-
-        //Write location data on every frame
-
-        currentGpxPoint = gpxTrackPoints.get(0);
-        org.joda.time.DateTime startTime = gpxTrackPoints.get(0).getTime();
-        while (null != (picture = grab.getNativeFrame())) {
-            System.out.println(picture.getWidth() + "x" + picture.getHeight() + " " + picture.getColor());
-//            BufferedImage bufferedImage = AWTUtil.toBufferedImage(picture);
-//            ImageIO.write(bufferedImage, "png", new File("frame"+i+".png"));
-            //for Android (jcodec-android)
-            Bitmap bitmap = AndroidUtil.toBitmap(picture);
-            bitmap = apply_location(bitmap,i,startTime);
-            //Store in arraylist
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, new FileOutputStream(getExternalFilesDir(null)+ File.separator+ "frame_"+i+".png"));
-            bmp_images.add(i,bitmap);
-            i++;
-        }
-
-
-    //Make video again
-
-
-        FileChannelWrapper out = null;
+//
+        CSVWriter writer;
+//        //Write location data on every frame
+//
+//        writer = create_csv_file();
+//        currentGpxPoint = gpxTrackPoints.get(0);
+//        org.joda.time.DateTime startTime = gpxTrackPoints.get(0).getTime();
+//        while (null != (picture = grab.getNativeFrame())) {
+//            i++;
+////            if(i%2==0)
+////                continue;
+//            System.out.println(picture.getWidth() + "x" + picture.getHeight() + " " + picture.getColor());
+////            BufferedImage bufferedImage = AWTUtil.toBufferedImage(picture);
+////            ImageIO.write(bufferedImage, "png", new File("frame"+i+".png"));
+//            //for Android (jcodec-android)
+//            Bitmap bitmap = AndroidUtil.toBitmap(picture);
+////            bitmap = flipIMage(bitmap);
+//            bitmap = apply_location(bitmap,i,startTime,writer);
+//            //Store in arraylist
+//            bitmap.compress(Bitmap.CompressFormat.PNG, 100, new FileOutputStream(getExternalFilesDir(null)+ File.separator+ "frame_"+i+".png"));
+//        }
+//        writer.close();
+//
+//    //Make video again
+//
+//
+//        FileChannelWrapper out = null;
+//        path = getExternalFilesDir(null) +
+//                File.separator + "GPS_Video_Logger" + File.separator + "REC-2022-04-17-17-49-05" +"final_result1.mp4";
+//        File files = new File(path);
+//        try { out = NIOUtils.writableFileChannel(files.getAbsolutePath());
+//        AndroidSequenceEncoder encoder = new AndroidSequenceEncoder(out, Rational.R(30, 1));
+//// GOP size will be supported in 0.2
+//// enc.getEncoder().setKeyInterval(25);
+//        for (int frameNum=1;frameNum<i;frameNum++) {
+//            Bitmap bitmap = BitmapFactory.decodeFile(getExternalFilesDir(null) +
+//                    File.separator+"frame_"+ String.valueOf(frameNum)+".png");
+//            encoder.encodeImage(bitmap);
+//        }
+//        encoder.finish();
+//    } finally {
+//        NIOUtils.closeQuietly(out);
+//    }
+//
+//        //Get data using OCR and write to CSV
         path = getExternalFilesDir(null) +
-                File.separator + "GPS_Video_Logger" + File.separator + filename +"final_result.mp4";
-        File files = new File(path);
-        try { out = NIOUtils.writableFileChannel(files.getAbsolutePath());
-        AndroidSequenceEncoder encoder = new AndroidSequenceEncoder(out, Rational.R(15, 1));
-// GOP size will be supported in 0.2
-// enc.getEncoder().setKeyInterval(25);
-        for (Bitmap bitmap : bmp_images) {
-            encoder.encodeImage(bitmap);
-        }
-        encoder.finish();
-    } finally {
-        NIOUtils.closeQuietly(out);
-    }
-
-        //Get data using OCR and write to CSV
-        path = getExternalFilesDir(null) +
-                File.separator + "GPS_Video_Logger" + File.separator + filename +"final_result.mp4";
+                File.separator + "GPS_Video_Logger" + File.separator + "REC-2022-04-17-08-29-20" +"final_result1.mp4";
         Log.i("Path:", path);
         file = new File(path);
         grab = null;
@@ -761,16 +832,50 @@ public class Recording extends AppCompatActivity {
             e.printStackTrace();
         }
 
-        CSVWriter writer = create_csv_file();
+        i=0;int c=0;
+        // Read the data
+        FileReader filereader = new FileReader(getExternalFilesDir(null) +
+                File.separator + "GPS_Video_Logger" + File.separator + "REC-2022-04-17-08-29-20final_result.csv");
+
+        // create csvReader object and skip first Line
+        CSVReader csvReader = new CSVReaderBuilder(filereader)
+                .withSkipLines(1)
+                .build();
+        List<String[]> allData = csvReader.readAll();
+        writer = create_csv_file();
+        for(int key = 0;key <=9;key++)
+        {accuracy.put(Integer.valueOf(key), Arrays.asList(0,0));}
+//Measure text width and test
+        Paint p = new Paint();
+        //Change font size and gap
+        p.setTypeface(Typeface.create("Arial",Typeface.BOLD));
+        p.setTextSize(60);
+        Paint.FontMetrics fm = new Paint.FontMetrics();
+        p.setColor(Color.BLACK);
+        p.getFontMetrics(fm);
+        int margin = 20;
+        crop_height =  (15 + fm.bottom + margin- (30 + fm.top - margin))+10;
+        crop_width = 5 + p.measureText("000.000000000000, 000.000000000000") + margin - (5 - margin)+ 100;
         while (null != (picture = grab.getNativeFrame())) {
+            i++;
             System.out.println(picture.getWidth() + "x" + picture.getHeight() + " " + picture.getColor());
             //for Android (jcodec-android)
             Bitmap bitmap = AndroidUtil.toBitmap(picture);
+            //Crop just the region of Interest
+            bitmap = Bitmap.createBitmap(bitmap,0,0,(int) crop_width,(int) crop_height);
             String extracted_text= get_text_from_image(bitmap);
-            convert_to_csv(i, writer,extracted_text);
-            i++;
+            convert_to_csv(i, writer,extracted_text, allData);
+            if(i==allData.size()-1)
+            {
+                break;
+            }
         }
         writer.close();
+        for(int key = 0;key <=9;key++)
+        {List l = accuracy.get(key);
+         Log.d("Info: ", String.valueOf(key));
+            Log.d("Info: ", String.valueOf(l.get(0)));
+            Log.d("Info: ", String.valueOf(l.get(1)));}
     }
 
     private void stop_rec_and_release() throws IOException {
@@ -786,7 +891,7 @@ public class Recording extends AppCompatActivity {
 
         releaseMediaRecorder(); // release the MediaRecorder object
         Log.d("Rec","MediaRecorder released");
-
+        extract_images_store();
         mCamera.lock();         // take camera access back from MediaRecorder
         Log.d("Rec","Take camera access back from MediaRecorder");
 
@@ -798,7 +903,7 @@ public class Recording extends AppCompatActivity {
         isRecording = false;
         forceRec = false;
         setGPSFixSpinner(); // Again display GPS fix status
-        extract_images_store();
+
     }
 
 
@@ -815,10 +920,10 @@ public class Recording extends AppCompatActivity {
                     // When the recording was forced by user, the first location after fix is obtained is
                     // saved as location at start time also.
                     // This ensures gpx and video file are in sync
-                    update_location_gpx(location, currentRecordingStartTime);
+//                    update_location_gpx(location, currentRecordingStartTime);
                     gotFirstFix = true;
                 }
-                update_location_gpx(location, System.currentTimeMillis());
+//                update_location_gpx(location, System.currentTimeMillis());
             }
         }
 
