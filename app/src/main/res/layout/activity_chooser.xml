@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context="app.gps_video_logger.ChooseActivity"
+    android:background="@color/colorText">
+
+    <Button
+        android:id="@+id/yolo_button"
+        android:layout_width="200dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="110dp"
+        android:layout_marginLeft="110dp"
+        android:layout_marginTop="300dp"
+        android:layout_marginEnd="77dp"
+        android:layout_marginRight="77dp"
+        android:layout_marginBottom="77dp"
+        android:gravity="center_horizontal|center_vertical"
+        android:paddingLeft="10sp"
+        android:paddingRight="10sp"
+        android:text="@string/yolo_button"
+        android:textColor="@color/colorBackground"
+        android:textSize="15sp" />
+
+    <Button
+        android:id="@+id/input_button"
+        android:layout_width="200dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="110dp"
+        android:layout_marginLeft="110dp"
+        android:layout_marginTop="180dp"
+        android:layout_marginEnd="77dp"
+        android:layout_marginRight="77dp"
+        android:layout_marginBottom="77dp"
+        android:gravity="center_horizontal|center_vertical"
+        android:paddingLeft="10sp"
+        android:paddingRight="10sp"
+        android:text="@string/input_button"
+        android:textColor="@color/colorBackground"
+        android:textSize="15sp" />
+
+</RelativeLayout>

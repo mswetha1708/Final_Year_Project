@@ -12,10 +12,12 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.hardware.Camera;
 import android.location.GnssStatus;
@@ -38,6 +40,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.view.animation.AnimationUtils;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -46,6 +49,12 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.core.content.ContextCompat;
 
+import com.example.project_swetha.detection.customview.OverlayView;
+import com.example.project_swetha.detection.env.ImageUtils;
+import com.example.project_swetha.detection.env.Utils;
+import com.example.project_swetha.detection.tflite.Classifier;
+import com.example.project_swetha.detection.tflite.YoloV4Classifier;
+import com.example.project_swetha.detection.tracking.MultiBoxTracker;
 import com.google.android.gms.vision.Frame;
 import com.google.android.gms.vision.text.TextBlock;
 import com.google.android.gms.vision.text.TextRecognizer;
@@ -55,9 +64,12 @@ import com.opencsv.CSVWriter;
 
 import org.jcodec.api.FrameGrab;
 import org.jcodec.api.JCodecException;
+import org.jcodec.api.android.AndroidSequenceEncoder;
 import org.jcodec.common.AndroidUtil;
+import org.jcodec.common.io.FileChannelWrapper;
 import org.jcodec.common.io.NIOUtils;
 import org.jcodec.common.model.Picture;
+import org.jcodec.common.model.Rational;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
 
@@ -73,6 +85,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.TimeZone;
@@ -172,6 +185,32 @@ public class Recording extends AppCompatActivity {
     ListIterator<TrackPoint> gpxTrackPointsIterator;
     List<TrackPoint> gpxTrackPoints;
     TrackPoint currentGpxPoint;
+
+    //Tensorflow Application parameters
+    public static final int TF_OD_API_INPUT_SIZE = 416;
+
+    private static final boolean TF_OD_API_IS_QUANTIZED = false;
+
+    private static final String TF_OD_API_MODEL_FILE = "yolov4-416-fp32.tflite";
+    public static final float MINIMUM_CONFIDENCE_TF_OD_API = 0.5f;
+    private static final String TF_OD_API_LABELS_FILE = "file:///android_asset/coco.txt";
+    private static final boolean MAINTAIN_ASPECT = false;
+    private Integer sensorOrientation = 90;
+    private Classifier detector;
+
+    private Matrix frameToCropTransform;
+    private Matrix cropToFrameTransform;
+    private MultiBoxTracker tracker;
+    private OverlayView trackingOverlay;
+
+    protected int previewWidth = 0;
+    protected int previewHeight = 0;
+
+    private Bitmap sourceBitmap;
+    private Bitmap cropBitmap;
+
+    private Button cameraButton, detectButton;
+    private ImageView imageView;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -354,8 +393,11 @@ public class Recording extends AppCompatActivity {
                 Toast.makeText(Recording.this,"Recording in progress", Toast.LENGTH_SHORT).show();
             }
             else{
-//                Intent intent = new Intent(Recording.this, FilePicker.class);
-//                startActivity(intent);
+                Intent intent = new Intent(Recording.this, FilePicker.class);
+                Bundle b = new Bundle();
+                b.putInt("key", 1); //Your id
+                intent.putExtras(b);
+                startActivity(intent);
             }
         }
     };
@@ -363,9 +405,15 @@ public class Recording extends AppCompatActivity {
     private final View.OnClickListener aboutButtonOnClickListener = new View.OnClickListener() {
         @Override
         public void onClick(View view) {
-            // Display alert showing usage specifications
-            if (!isRecording){
-                display_alert(INSTRUCTIONS);
+            if (isRecording){
+                Toast.makeText(Recording.this,"Recording in progress", Toast.LENGTH_SHORT).show();
+            }
+            else{
+                Intent intent = new Intent(Recording.this, FilePicker.class);
+                Bundle b = new Bundle();
+                b.putInt("key", 2); //Your id
+                intent.putExtras(b);
+                startActivity(intent);
             }
         }
     };
@@ -382,15 +430,15 @@ public class Recording extends AppCompatActivity {
     private final View.OnClickListener modeChangeListener = new View.OnClickListener() {
         @Override
         public void onClick(View view) {
-            Log.d("Mode","Change requested"+ mode);
-            if (!isRecording){
-                if (mode == VIDEO_MODE){
-                    display_alert(EXPERIMENTAL_TIME_LAPSE_MODE);
-                    set_mode(TIMELAPSE_MODE);
-                }
-                else if (mode == TIMELAPSE_MODE){
-                    set_mode(VIDEO_MODE);
-                }
+            if (isRecording){
+                Toast.makeText(Recording.this,"Recording in progress", Toast.LENGTH_SHORT).show();
+            }
+            else{
+                Intent intent = new Intent(Recording.this, FilePicker.class);
+                Bundle b = new Bundle();
+                b.putInt("key", 3); //Your id
+                intent.putExtras(b);
+                startActivity(intent);
             }
         }
     };
@@ -632,10 +680,28 @@ public class Recording extends AppCompatActivity {
                     int longitude_error = mis_match(Original[2], data[1]);
 
                 //
-                String[] data1 = {String.valueOf(i), Original[0], Original[1], Original[2], data[0], data[1],String.valueOf(latitude_error), String.valueOf(longitude_error)};
+                String[] data1 = {String.valueOf(i), String.valueOf(i), Original[1], Original[2], data[0], data[1],String.valueOf(latitude_error), String.valueOf(longitude_error)};
                 writer.writeNext(data1);
             }
 
+    }
+    private void convert_to_csv_persons(int i, CSVWriter writer, String extracted_text,int count,  List<String[]> allData) {
+
+        // Split extract Text when a coma is found
+        String [] data = extracted_text.split(",");
+        //Original Value, New Value
+        if(allData.size()>i) {
+            String[] Original = allData.get(i);
+            //Data1 find number of digits misclassified for each row.
+            //Find the digit misclassified and add the total number of digits misclassified along with accuracy (0-9).
+            if(Original.length <3 || data.length <2) {
+                return;
+            }
+            Log.i("INFO", String.valueOf(i));
+            //
+            String[] data1 = {String.valueOf(i),data[0], data[1],String.valueOf(count)};
+            writer.writeNext(data1);
+        }
     }
     private int mis_match(String original, String extracted)
     {
@@ -672,7 +738,7 @@ public class Recording extends AppCompatActivity {
         // Use OCR and add the details , frame number, coordinates in a csv.
         try {
             csvfile = new File(getExternalFilesDir(null) +
-                    File.separator + "GPS_Video_Logger" + File.separator + "REC-2022-04-17-08-29-20" +"after_Processing.csv");
+                    File.separator + "GPS_Video_Logger" + File.separator + filename +"after_Processing.csv");
             // if file doesnt exists, then create it
             if (!csvfile.exists()) {
                 csvfile.createNewFile();
@@ -717,7 +783,7 @@ public class Recording extends AppCompatActivity {
 
         //To get frames from video
         String path = getExternalFilesDir(null) +
-                File.separator + "GPS_Video_Logger" + File.separator + "REC-2022-04-17-08-29-20" +".mp4";
+                File.separator + "GPS_Video_Logger" + File.separator + filename +".mp4";
         Log.i("Path:", path);
         File folder = new File(path);
         if (!folder.exists()) {
@@ -739,7 +805,7 @@ public class Recording extends AppCompatActivity {
         GPXParser parser = new GPXParser();
         Gpx gpx_parsed = null;
         FileInputStream fis;
-        String gpx_filename = "REC-2022-04-17-17-49-05" + ".gpx";
+        String gpx_filename = filename + ".gpx";
 
 //
 ////Read from .gpx file created
@@ -756,7 +822,7 @@ public class Recording extends AppCompatActivity {
             e.printStackTrace();
 //            display_error_and_quit(GPX_FILE_NOT_FOUND)
         }
-
+        org.joda.time.DateTime startTime = null;
 // Get the list Iterator
         if (gpx_parsed!=null){
             List<Track> tracks = gpx_parsed.getTracks();
@@ -771,7 +837,7 @@ public class Recording extends AppCompatActivity {
                         Log.d("Error: ", String.valueOf(gpxTrackPoints.size()));
                     }
                     gpxTrackPointsIterator = gpxTrackPoints.listIterator();
-//                    Object start_time = gpxTrackPoints.get(0).getTime().getMillis();
+                    startTime = gpxTrackPoints.get(0).getTime();
 //                    Object end_time = gpxTrackPoints.get(gpxTrackPoints.size()-1).getTime().getMillis();
                 }
             }
@@ -779,50 +845,51 @@ public class Recording extends AppCompatActivity {
 //
         CSVWriter writer;
 //        //Write location data on every frame
-//
-//        writer = create_csv_file();
-//        currentGpxPoint = gpxTrackPoints.get(0);
-//        org.joda.time.DateTime startTime = gpxTrackPoints.get(0).getTime();
-//        while (null != (picture = grab.getNativeFrame())) {
-//            i++;
-////            if(i%2==0)
-////                continue;
-//            System.out.println(picture.getWidth() + "x" + picture.getHeight() + " " + picture.getColor());
-////            BufferedImage bufferedImage = AWTUtil.toBufferedImage(picture);
-////            ImageIO.write(bufferedImage, "png", new File("frame"+i+".png"));
-//            //for Android (jcodec-android)
-//            Bitmap bitmap = AndroidUtil.toBitmap(picture);
-////            bitmap = flipIMage(bitmap);
-//            bitmap = apply_location(bitmap,i,startTime,writer);
-//            //Store in arraylist
-//            bitmap.compress(Bitmap.CompressFormat.PNG, 100, new FileOutputStream(getExternalFilesDir(null)+ File.separator+ "frame_"+i+".png"));
-//        }
-//        writer.close();
-//
-//    //Make video again
-//
-//
-//        FileChannelWrapper out = null;
-//        path = getExternalFilesDir(null) +
-//                File.separator + "GPS_Video_Logger" + File.separator + "REC-2022-04-17-17-49-05" +"final_result1.mp4";
-//        File files = new File(path);
-//        try { out = NIOUtils.writableFileChannel(files.getAbsolutePath());
-//        AndroidSequenceEncoder encoder = new AndroidSequenceEncoder(out, Rational.R(30, 1));
-//// GOP size will be supported in 0.2
-//// enc.getEncoder().setKeyInterval(25);
-//        for (int frameNum=1;frameNum<i;frameNum++) {
-//            Bitmap bitmap = BitmapFactory.decodeFile(getExternalFilesDir(null) +
-//                    File.separator+"frame_"+ String.valueOf(frameNum)+".png");
-//            encoder.encodeImage(bitmap);
-//        }
-//        encoder.finish();
-//    } finally {
-//        NIOUtils.closeQuietly(out);
-//    }
-//
-//        //Get data using OCR and write to CSV
+
+        writer = create_csv_file();
+        currentGpxPoint = gpxTrackPoints.get(0);
+//        org.joda.time.DateTime startTime = start_time;
+        while (null != (picture = grab.getNativeFrame())) {
+            i++;
+//            if(i%2==0)
+//                continue;
+            System.out.println(picture.getWidth() + "x" + picture.getHeight() + " " + picture.getColor());
+//            BufferedImage bufferedImage = AWTUtil.toBufferedImage(picture);
+//            ImageIO.write(bufferedImage, "png", new File("frame"+i+".png"));
+            //for Android (jcodec-android)
+            Bitmap bitmap = AndroidUtil.toBitmap(picture);
+//            bitmap = flipIMage(bitmap);
+//            bitmap = Bitmap.createScaledBitmap(bitmap, 1080, 1920, false);
+            bitmap = apply_location(bitmap,i,startTime,writer);
+            //Store in arraylist
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, new FileOutputStream(getExternalFilesDir(null)+ File.separator+ "frame_"+i+".png"));
+        }
+        writer.close();
+
+    //Make video again
+
+
+        FileChannelWrapper out = null;
         path = getExternalFilesDir(null) +
-                File.separator + "GPS_Video_Logger" + File.separator + "REC-2022-04-17-08-29-20" +"final_result1.mp4";
+                File.separator + "GPS_Video_Logger" + File.separator + filename +"final_result.mp4";
+        File files = new File(path);
+        try { out = NIOUtils.writableFileChannel(files.getAbsolutePath());
+        AndroidSequenceEncoder encoder = new AndroidSequenceEncoder(out, Rational.R(30, 1));
+// GOP size will be supported in 0.2
+// enc.getEncoder().setKeyInterval(25);
+        for (int frameNum=1;frameNum<i;frameNum++) {
+            Bitmap bitmap = BitmapFactory.decodeFile(getExternalFilesDir(null) +
+                    File.separator+"frame_"+ String.valueOf(frameNum)+".png");
+            encoder.encodeImage(bitmap);
+        }
+        encoder.finish();
+    } finally {
+        NIOUtils.closeQuietly(out);
+    }
+
+        //Get data using OCR and write to CSV
+        path = getExternalFilesDir(null) +
+                File.separator + "GPS_Video_Logger" + File.separator + filename +"final_result.mp4";
         Log.i("Path:", path);
         file = new File(path);
         grab = null;
@@ -835,7 +902,7 @@ public class Recording extends AppCompatActivity {
         i=0;int c=0;
         // Read the data
         FileReader filereader = new FileReader(getExternalFilesDir(null) +
-                File.separator + "GPS_Video_Logger" + File.separator + "REC-2022-04-17-08-29-20final_result.csv");
+                File.separator + "GPS_Video_Logger" + File.separator + filename + "after_Processing.csv");
 
         // create csvReader object and skip first Line
         CSVReader csvReader = new CSVReaderBuilder(filereader)
@@ -861,10 +928,21 @@ public class Recording extends AppCompatActivity {
             System.out.println(picture.getWidth() + "x" + picture.getHeight() + " " + picture.getColor());
             //for Android (jcodec-android)
             Bitmap bitmap = AndroidUtil.toBitmap(picture);
+                //Find number of persons
+        cropBitmap = Utils.processBitmap(bitmap, TF_OD_API_INPUT_SIZE);
+//        int count=0;
+//        if(i==1) {
+//            initBox();
+//        }
+//        if(cropBitmap!=null) {
+//            List<Classifier.Recognition> results = detector.recognizeImage(cropBitmap);
+//            count = handleResult(cropBitmap, results);
+//        }
             //Crop just the region of Interest
             bitmap = Bitmap.createBitmap(bitmap,0,0,(int) crop_width,(int) crop_height);
             String extracted_text= get_text_from_image(bitmap);
             convert_to_csv(i, writer,extracted_text, allData);
+//            convert_to_csv_persons(i, writer,extracted_text, count,allData);
             if(i==allData.size()-1)
             {
                 break;
@@ -876,6 +954,91 @@ public class Recording extends AppCompatActivity {
          Log.d("Info: ", String.valueOf(key));
             Log.d("Info: ", String.valueOf(l.get(0)));
             Log.d("Info: ", String.valueOf(l.get(1)));}
+//        File Path = new File(getExternalFilesDir(null) +
+//                File.separator + "Frame_2.jpeg");
+//        sourceBitmap = BitmapFactory.decodeFile(getExternalFilesDir(null) +
+//                File.separator  + "Frame_2.jpeg");
+//
+//        //Utils.getBitmapFromAsset(MainActivity.this, "kite.jpg");
+//
+//        cropBitmap = Utils.processBitmap(sourceBitmap, TF_OD_API_INPUT_SIZE);
+//        initBox();
+//        if(cropBitmap!=null) {
+//            List<Classifier.Recognition> results = detector.recognizeImage(cropBitmap);
+//            int count = handleResult(cropBitmap, results);
+//        }
+    }
+
+    private void initBox() {
+        previewHeight = TF_OD_API_INPUT_SIZE;
+        previewWidth = TF_OD_API_INPUT_SIZE;
+        frameToCropTransform =
+                ImageUtils.getTransformationMatrix(
+                        previewWidth, previewHeight,
+                        TF_OD_API_INPUT_SIZE, TF_OD_API_INPUT_SIZE,
+                        sensorOrientation, MAINTAIN_ASPECT);
+
+        cropToFrameTransform = new Matrix();
+        frameToCropTransform.invert(cropToFrameTransform);
+
+//        tracker = new MultiBoxTracker(this);
+//        trackingOverlay = findViewById(R.id.tracking_overlay);
+//        trackingOverlay.addCallback(
+//                canvas -> tracker.draw(canvas));
+//
+//        tracker.setFrameConfiguration(TF_OD_API_INPUT_SIZE, TF_OD_API_INPUT_SIZE, sensorOrientation);
+
+        try {
+            detector =
+                    YoloV4Classifier.create(
+                            getAssets(),
+                            TF_OD_API_MODEL_FILE,
+                            TF_OD_API_LABELS_FILE,
+                            TF_OD_API_IS_QUANTIZED);
+        } catch (final IOException e) {
+            e.printStackTrace();
+            Log.e("ERROR", "initBox: Exception initializing classifier!");
+            Toast toast =
+                    Toast.makeText(
+                            getApplicationContext(), "Classifier could not be initialized", Toast.LENGTH_SHORT);
+            toast.show();
+            finish();
+        }
+    }
+
+    private int handleResult(Bitmap bitmap, List<Classifier.Recognition> results) {
+        final Canvas canvas = new Canvas(bitmap);
+        int count = 0;
+        final Paint paint = new Paint();
+        paint.setColor(Color.RED);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2.0f);
+
+        final List<Classifier.Recognition> mappedRecognitions =
+                new LinkedList<Classifier.Recognition>();
+
+        for (final Classifier.Recognition result : results) {
+            final RectF location = result.getLocation();
+            if (location != null && result.getConfidence() >= MINIMUM_CONFIDENCE_TF_OD_API) {
+                canvas.drawRect(location, paint);
+//                cropToFrameTransform.mapRect(location);
+//
+//                result.setLocation(location);
+//                mappedRecognitions.add(result);
+                //Count if title is person
+                if((result.getTitle()).equals("person"))
+                {
+                    count++;
+                }
+                //Print count
+            }
+            Log.i("INFO", "handleResult: "+count);
+        }
+//        tracker.trackResults(mappedRecognitions, new Random().nextInt());
+//        trackingOverlay.postInvalidate();
+//        imageView.setImageBitmap(bitmap);
+        return count;
+
     }
 
     private void stop_rec_and_release() throws IOException {
@@ -920,10 +1083,10 @@ public class Recording extends AppCompatActivity {
                     // When the recording was forced by user, the first location after fix is obtained is
                     // saved as location at start time also.
                     // This ensures gpx and video file are in sync
-//                    update_location_gpx(location, currentRecordingStartTime);
+                    update_location_gpx(location, currentRecordingStartTime);
                     gotFirstFix = true;
                 }
-//                update_location_gpx(location, System.currentTimeMillis());
+               update_location_gpx(location, System.currentTimeMillis());
             }
         }
 

@@ -40,7 +40,7 @@ public class LauncherActivity extends AppCompatActivity {
             new Handler().postDelayed(new Runnable() {
                 @Override
                 public void run() {
-                    Intent intent = new Intent(LauncherActivity.this, Recording.class);
+                    Intent intent = new Intent(LauncherActivity.this, ChooseActivity.class);
                     startActivity(intent);
                     finish();
                 }
@@ -64,7 +64,7 @@ public class LauncherActivity extends AppCompatActivity {
 
             if (all_permission_granted){
                 //Start recording activity
-                Intent intent = new Intent(LauncherActivity.this, Recording.class);
+                Intent intent = new Intent(LauncherActivity.this, ChooseActivity.class);
                 startActivity(intent);
                 finish();
             }
