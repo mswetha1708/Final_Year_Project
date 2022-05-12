@@ -1,0 +1,74 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    compileSdkVersion 30
+    buildToolsVersion "30.0.2"
+
+    defaultConfig {
+        applicationId "com.example.project_swetha"
+        minSdkVersion 16
+        targetSdkVersion 30
+        versionCode 1
+        versionName "1.0"
+        multiDexEnabled true
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+
+
+
+    implementation 'androidx.appcompat:appcompat:1.1.0-alpha03'
+    implementation 'androidx.core:core-ktx:1.1.0-alpha05'
+    implementation 'com.google.android.material:material:1.1.0'
+    implementation 'androidx.constraintlayout:constraintlayout:1.1.3'
+    implementation 'de.hdodenhof:circleimageview:3.1.0'
+    implementation 'org.apache.directory.studio:org.apache.commons.io:2.4'
+    implementation 'androidx.navigation:navigation-fragment:2.2.2'
+    implementation 'androidx.navigation:navigation-ui:2.2.2'
+    implementation 'com.google.android.gms:play-services-location:17.0.0'
+    implementation files('/home/swethamohan/Desktop/Project_input/app/libs/javacv-1.5.7.jar')
+    implementation files('/home/swethamohan/Desktop/Project_input/app/libs/ffmpeg-5.0-1.5.7.jar')
+    implementation files('/home/swethamohan/Desktop/Project_input/app/libs/javacpp-1.5.7.jar')
+    implementation files('/home/swethamohan/Desktop/Project_input/app/libs/opencv-4.5.5-1.5.7.jar')
+    implementation fileTree(dir: '/home/swethamohan/Downloads/Tess4J', include: ['*.aar', '*.jar'], exclude: [])
+    testImplementation 'junit:junit:4.12'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.1'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.2.0'
+//    implementation 'org.bytedeco.javacpp-presets:ffmpeg-platform:3.4.2-1.4.1'
+    implementation 'org.jcodec:jcodec:0.2.5'
+    implementation 'org.jcodec:jcodec-android:0.2.5'
+    implementation 'io.ticofab.androidgpxparser:parser:1.6.0'
+    implementation 'joda-time:joda-time:2.3'
+    implementation 'com.google.android.gms:play-services-vision:19.0.0'
+    implementation 'com.opencsv:opencsv:4.0'
+    implementation fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
+    implementation 'androidx.appcompat:appcompat:1.1.0'
+    implementation 'androidx.coordinatorlayout:coordinatorlayout:1.1.0'
+    implementation 'com.google.android.material:material:1.1.0'
+//    implementation 'org.tensorflow:tensorflow-lite:0.0.0-nightly'
+//    implementation 'org.tensorflow:tensorflow-lite-gpu:0.0.0-nightly'
+    implementation 'org.tensorflow:tensorflow-lite:2.2.0'
+    implementation 'org.tensorflow:tensorflow-lite-gpu:2.2.0'
+//    implementation 'org.tensorflow:tensorflow-lite:0.0.0-gpu-experimental'
+    implementation 'androidx.constraintlayout:constraintlayout:1.1.3'
+    implementation 'com.google.code.gson:gson:2.8.6'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.1'
+    androidTestImplementation 'com.android.support.test:rules:1.0.2'
+    androidTestImplementation 'com.google.truth:truth:1.0.1'
+
+}
