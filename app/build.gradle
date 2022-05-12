@@ -7,7 +7,7 @@ android {
     buildToolsVersion "30.0.2"
 
     defaultConfig {
-        applicationId "com.example.project_swetha"
+        applicationId "com.example.project"
         minSdkVersion 16
         targetSdkVersion 30
         versionCode 1
@@ -41,11 +41,6 @@ dependencies {
     implementation 'androidx.navigation:navigation-fragment:2.2.2'
     implementation 'androidx.navigation:navigation-ui:2.2.2'
     implementation 'com.google.android.gms:play-services-location:17.0.0'
-    implementation files('/home/swethamohan/Desktop/Project_input/app/libs/javacv-1.5.7.jar')
-    implementation files('/home/swethamohan/Desktop/Project_input/app/libs/ffmpeg-5.0-1.5.7.jar')
-    implementation files('/home/swethamohan/Desktop/Project_input/app/libs/javacpp-1.5.7.jar')
-    implementation files('/home/swethamohan/Desktop/Project_input/app/libs/opencv-4.5.5-1.5.7.jar')
-    implementation fileTree(dir: '/home/swethamohan/Downloads/Tess4J', include: ['*.aar', '*.jar'], exclude: [])
     testImplementation 'junit:junit:4.12'
     androidTestImplementation 'androidx.test.ext:junit:1.1.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.2.0'
