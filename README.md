@@ -9,4 +9,5 @@ Contains the code repository for the application implemented as a part of the fi
 
 ## References
 [GPS Logger Sample Application](https://github.com/abinpaul1/GPS-Video-Logger)
+
 [Yolov4 Reference Link](https://github.com/haroonshakeel/tensorflow-yolov4-tflite)
